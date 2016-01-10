@@ -1,48 +1,38 @@
 -- Tahin
--- Copyright (C) 2015 Moritz Schulte <mtesseract@silverratio.net>
+-- Copyright (C) 2015, 2016 Moritz Schulte <mtesseract@silverratio.net>
 
-module Main where
+module Tahin ( TahinException(..), tahin) where
 
-import qualified Crypto.Hash.SHA256       as SHA256
 import qualified Data.ByteString          as BS
--- import qualified Data.ByteString.Base16   as B16
 import qualified Data.ByteString.Base64   as B64
 import qualified Data.ByteString.Char8    as BS8
-import           System.Console.Haskeline
-import           System.Exit
+import           Control.Exception
+import           Data.Typeable
 
-defaultHash :: BS.ByteString -> BS.ByteString
-defaultHash = SHA256.hash
+-----------------------------
+-- Define Tahin exceptions --
+-----------------------------
 
-defaultEncoder :: BS.ByteString -> BS.ByteString
-defaultEncoder = B64.encode
+-- | Exception type used in Tahin.
+data TahinException =
+  TahinExceptionNone            -- ^ Exception value representing no
+                                -- exception
+  | TahinExceptionString String -- ^ Exception value holding an error
+                                -- message
+  deriving (Show, Typeable)
 
-hashBase64 :: String -> String
-hashBase64 = BS8.unpack . defaultEncoder . defaultHash . BS8.pack
--- hashBase16 = BS8.unpack . defaultEncoder . defaultHash . BS8.pack
+-- | A 'NokeeException' is an 'Exception'.
+instance Exception TahinException
 
-passwordLength :: Int
-passwordLength = 20
 
-defaultPromptMaster :: String
-defaultPromptMaster = "Master Password"
+-------------------------
+-- Main tahin function --
+-------------------------
 
-defaultPromptIdentifier :: String
-defaultPromptIdentifier = "Identifier"
-
-readPassword :: String -> IO (Maybe String)
-readPassword prompt = do
-  runInputT defaultSettings $
-    getPassword (Just '*') (prompt ++ ": ")
-
-tahin :: String -> String
-tahin = (take passwordLength) . hashBase64
-
-main :: IO ()
-main = do
-  maybePasswdMaster     <- readPassword defaultPromptMaster
-  maybePasswdIdentifier <- readPassword defaultPromptIdentifier
-  let passwd = (++) <$> maybePasswdMaster <*> maybePasswdIdentifier
-  case passwd of
-    Just p  -> putStrLn $ tahin p
-    Nothing -> exitWith (ExitFailure 1)
+-- | Given a hash function and a maximum length, return a function
+-- transforming a master password together with a identifier into a
+-- new password.
+tahin :: (BS.ByteString -> BS.ByteString) -> Int -> (String -> String -> String)
+tahin hash len pwMaster pwIdentifier =
+  let hashInput = pwMaster ++ " " ++ pwIdentifier
+  in (take len . BS8.unpack . B64.encode . hash . BS8.pack) hashInput
