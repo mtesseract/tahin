@@ -45,18 +45,32 @@ defaultLength :: Int
 defaultLength = 20
 
 -- | Master password prompt.
-defaultPromptMaster :: String
-defaultPromptMaster = "Master Password"
+defaultPromptMaster1 :: String
+defaultPromptMaster1 = "Master Password"
+
+-- | Master password prompt (retype).
+defaultPromptMaster2 :: String
+defaultPromptMaster2 = "Master Password (retype)"
 
 -- | Identifier prompt.
 defaultPromptIdentifier :: String
 defaultPromptIdentifier = "Identifier"
 
--- | Displays a prompt and tries to read a password from the terminal.
+-- | Displays a prompt and tries to read a password from the
+-- terminal. Returns Maybe a String wrapped in IO.
 readPassword :: String -> IO (Maybe String)
 readPassword prompt =
   HL.runInputT HL.defaultSettings $
     HL.getPassword (Just '*') (prompt ++ ": ")
+
+-- | Displays a prompt and tries to read a password from the
+-- terminal. On failure, throw an exception.
+readPassword' :: String -> String -> IO String
+readPassword' prompt errMsg = do
+  maybePassword <- readPassword prompt
+  case maybePassword of
+    Just password -> return password
+    Nothing       -> throw (TahinExceptionString errMsg)
 
 -- | The name of the program.
 programName :: String
@@ -101,10 +115,7 @@ lookupHash hashName = M.lookup hashName' hashes
 lookupHash' :: String -> IO HashFunction
 lookupHash' hashName = do
   let maybeHashFun = lookupHash hashName
-      hashFun = fromMaybe
-                  (throw (TahinExceptionString ("Unknown hash: " ++ hashName)))
-                  maybeHashFun
-  return $! hashFun
+  return $! fromMaybe (throw (TahinExceptionString ("Unknown hash: " ++ hashName))) maybeHashFun
 
 -- | This function implements the main program logic. May throw
 -- TahinExceptions, they will be handled in the caller.
@@ -116,24 +127,27 @@ runTahin opts = do
     throw TahinExceptionNone
 
   let hashName = map Data.Char.toUpper (optsHash opts)
-      maybeHashFun = lookupHash hashName
-      hashFun' = fromMaybe
-                   (throw (TahinExceptionString ("Unknown hash: " ++ hashName)))
-                   maybeHashFun
       len = optsLength opts
 
-  -- Evaluate hashFun, triggering an exception now if the hash
-  -- function could not be found.
-  hashFun <- return $! hashFun'
+  hashFun <- lookupHash' hashName
 
   infoMessage opts $ "Using hash function " ++ hashName
   infoMessage opts $ "Length is at most " ++ show len
 
-  maybePasswdMaster     <- readPassword defaultPromptMaster
-  maybePasswdIdentifier <- readPassword defaultPromptIdentifier
-  case (maybePasswdMaster, maybePasswdIdentifier) of
-    (Just passwdM, Just passwdI) -> putStrLn $ tahin hashFun len passwdM passwdI
-    _ -> throw (TahinExceptionString "Failed to retrieve input password")
+  passwdMaster1    <- readPassword' defaultPromptMaster1 errMsgRetrieveMasterPasswd
+  passwdMaster2    <- readPassword' defaultPromptMaster2 errMsgRetrieveMasterPasswd
+  passwdMaster     <- verifyPasswords passwdMaster1 passwdMaster2
+  passwdIdentifier <- readPassword' defaultPromptIdentifier errMsgRetrieveIdentifier
+
+  let tahinPasswd  = tahin hashFun len passwdMaster passwdIdentifier
+  putStrLn tahinPasswd
+
+  where errMsgRetrieveMasterPasswd = "Failed to retrieve master password"
+        errMsgRetrieveIdentifier   = "Failed to retrieve password identifier"
+        verifyPasswords pw1 pw2 =
+          if pw1 == pw2
+             then return pw1
+             else throw (TahinExceptionString "Password mismatch")
 
 -- | Type holding the information about parsed arguments.
 data TahinOptions = TahinOptions
@@ -171,7 +185,7 @@ tahinOptions = TahinOptions
 -- | Main entry point.
 main :: IO ()
 main = execParser opts >>= main'
-  where opts = info tahinOptions
+  where opts = info (helper <*> tahinOptions)
                  (fullDesc
                   <> progDesc programDescription
                   <> header (programName ++ " - " ++ programDescriptionShort))
