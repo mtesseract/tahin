@@ -1,6 +1,8 @@
 -- Tahin
 -- Copyright (C) 2015, 2016 Moritz Schulte <mtesseract@silverratio.net>
 
+{-# LANGUAGE OverloadedStrings          #-}
+
 module Main where
 
 import qualified System.Console.Haskeline as HL
@@ -8,8 +10,9 @@ import qualified Data.Map                 as M
 import           System.Exit
 import           Options.Applicative
 import           Control.Exception
+import           Control.Monad.Identity (runIdentity)
+import           Control.Monad.Reader
 import           Data.Maybe
-import           Control.Monad
 import           Paths_Tahin
 import           Data.Version
 import           Data.Char
@@ -22,55 +25,23 @@ import qualified Crypto.Hash.SHA384       as SHA384
 import qualified Crypto.Hash.SHA512       as SHA512
 import qualified Crypto.Hash.Tiger        as Tiger
 import qualified Crypto.Hash.Whirlpool    as Whirlpool
+import qualified Data.Text                as T
+import qualified Data.Text.IO             as TIO
+import           Data.Text (Text)
 
+-- | The type of a hash function; a hash function maps a ByteString to
+-- a ByteString.
 type HashFunction = BS.ByteString -> BS.ByteString
 
--- | Supported hashes, mapping string identifiers to the respective
--- hash functions.
-hashes :: M.Map String HashFunction
-hashes = M.fromList [ ("SHA1"     , SHA1.hash     )
-                    , ("SHA224"   , SHA224.hash   )
-                    , ("SHA256"   , SHA256.hash   )
-                    , ("SHA384"   , SHA384.hash   )
-                    , ("SHA512"   , SHA512.hash   )
-                    , ("TIGER"    , Tiger.hash    )
-                    , ("WHIRLPOOL", Whirlpool.hash) ]
+-- | A Hash object contains a name and a HashFunction.
+data Hash =
+  Hash { hashString   :: String        -- ^ Name of this hashing algorithm
+       , hashFunction :: HashFunction  -- ^ The hash function
+       }
 
--- | The default hash function used by Nokee.
-defaultHash :: String
-defaultHash = "SHA256"
-
--- | The default maximum length of the base64 encoded bytestring.
-defaultLength :: Int
-defaultLength = 20
-
--- | Master password prompt.
-defaultPromptMaster1 :: String
-defaultPromptMaster1 = "Master Password"
-
--- | Master password prompt (retype).
-defaultPromptMaster2 :: String
-defaultPromptMaster2 = "Master Password (retype)"
-
--- | Identifier prompt.
-defaultPromptIdentifier :: String
-defaultPromptIdentifier = "Identifier"
-
--- | Displays a prompt and tries to read a password from the
--- terminal. Returns Maybe a String wrapped in IO.
-readPassword :: String -> IO (Maybe String)
-readPassword prompt =
-  HL.runInputT HL.defaultSettings $
-    HL.getPassword (Just '*') (prompt ++ ": ")
-
--- | Displays a prompt and tries to read a password from the
--- terminal. On failure, throw an exception.
-readPassword' :: String -> String -> IO String
-readPassword' prompt errMsg = do
-  maybePassword <- readPassword prompt
-  case maybePassword of
-    Just password -> return password
-    Nothing       -> throw (TahinExceptionString errMsg)
+-- | A TahinEnv contains the environment we pass down using the
+-- ReaderT monad transformer.
+data TahinEnv = TahinEnv { tahinEnvOptions :: TahinOptions }
 
 -- | The name of the program.
 programName :: String
@@ -90,76 +61,183 @@ programDescription = "Tahin generates a password by concatenating a 'master pass
                      \with an 'identifier', transforming this string with a hash \
                      \function and finally base64-encode the resulting binary string."
 
+-- | Supported hashes.
+hashes :: [Hash]
+hashes = [ Hash "SHA1"      SHA1.hash
+         , Hash "SHA224"    SHA224.hash
+         , Hash "SHA256"    SHA256.hash
+         , Hash "SHA384"    SHA384.hash
+         , Hash "SHA512"    SHA512.hash
+         , Hash "TIGER"     Tiger.hash
+         , Hash "WHIRLPOOL" Whirlpool.hash ]
+
+-- | Supported hashes as a map, mapping their names to the respective
+-- Hash values.
+hashesMap :: M.Map String Hash
+hashesMap = M.fromList $ map (\ hash@(Hash name _) -> (name, hash)) hashes
+
+-- | The default hash function used by Nokee.
+defaultHash :: String
+defaultHash = "SHA256"
+
+-- | The default maximum length of the base64 encoded bytestring.
+defaultLength :: Int
+defaultLength = 20
+
+-- | Master password prompt.
+defaultPromptMaster1 :: Text
+defaultPromptMaster1 = "Master Password"
+
+-- | Master password prompt (retype).
+defaultPromptMaster2 :: Text
+defaultPromptMaster2 = "Master Password (retype)"
+
+-- | Identifier prompt.
+defaultPromptIdentifier :: Text
+defaultPromptIdentifier = "Identifier"
+
+-- | Displays a prompt and tries to read a password from the
+-- terminal. Returns Maybe a String wrapped in IO.
+readPassword :: Text -> ReaderT TahinEnv IO (Maybe Text)
+readPassword prompt = liftIO $
+  HL.runInputT HL.defaultSettings $
+    fmap T.pack <$> HL.getPassword (Just '*') (T.unpack (T.concat [prompt, ": "]))
+
+-- | Displays a prompt and tries to read a password from the
+-- terminal. On failure, throw an exception.
+readPassword' :: Text -> String -> ReaderT TahinEnv IO Text
+readPassword' prompt errMsg = do
+  maybePassword <- readPassword prompt
+  case maybePassword of
+    Just password -> return password
+    Nothing       -> throw (TahinExceptionString errMsg)
+
+-- | Command Dispatcher.
+commandDispatcher :: ReaderT TahinEnv IO ()
+commandDispatcher = do
+  cmds <- mapReaderT (return . runIdentity) extractCommands
+  let cmd = case cmds of
+        []  -> runTahin -- Default command is run Tahin.
+        [c] -> c        -- If exactly one command is given, execute it.
+        _   ->
+          -- Fail, if multiple commands are given.
+          throw (TahinExceptionString "Multiple commands specified")
+  cmd
+
+  where -- | This function usees commandSpec to compute the list of
+        -- specified commands.
+        extractCommands = do
+          maybeCmds <- forM commandSpec
+            (\ (cmdTest, cmdFunc) -> do
+                testRes <- cmdTest
+                if testRes
+                   then return $ Just cmdFunc
+                   else return Nothing)
+          return $ catMaybes maybeCmds
+
+        -- | This defines the commands supported (besides the default
+        -- command) along with suitable test functions, which check if
+        -- the respective command is given.
+        commandSpec =
+          [ (optsVersion    . tahinEnvOptions <$> ask, printVersion)
+          , (optsListHashes . tahinEnvOptions <$> ask, listHashes) ]
+        
+
 -- | This function is just a wrapper around the function 'runTahin', adding
 -- exception handling. It gets called after arguments have been
 -- parsed.
 main' :: TahinOptions -> IO ()
-main' opts =
-  catch (runTahin opts)
+main' opts = do
+  let tahinEnv = TahinEnv { tahinEnvOptions = opts }
+  catch (runReaderT commandDispatcher tahinEnv)
         (\ e -> case (e :: TahinException) of
                   TahinExceptionString s -> do putStrLn $ "Error: " ++ s
                                                exitFailure
                   TahinExceptionNone     -> return ())
 
 -- | Print version information to stdout.
-printVersion :: IO ()
-printVersion = putStrLn $ programName ++ " " ++ programVersion
+printVersion :: ReaderT TahinEnv IO ()
+printVersion = liftIO $ putStrLn $ programName ++ " " ++ programVersion
+
+-- | Print supported hashes to stdout.
+listHashes :: ReaderT TahinEnv IO ()
+listHashes = do
+  let hashNames = map fst (M.toList hashesMap)
+  mapM_ (liftIO . putStrLn) hashNames
 
 -- | Try to lookup a hashing function by its name.
-lookupHash :: String -> Maybe HashFunction
-lookupHash hashName = M.lookup hashName' hashes
-  where hashName' = toUpperCase hashName
+lookupHash :: String -> Maybe Hash
+lookupHash hashName = M.lookup hashName' hashesMap
+  where hashName'   = toUpperCase hashName
         toUpperCase = map toUpper
 
 -- | May throw exceptions of type TahinException
-lookupHash' :: String -> IO HashFunction
-lookupHash' hashName = do
-  let maybeHashFun = lookupHash hashName
-  return $! fromMaybe (throw (TahinExceptionString ("Unknown hash: " ++ hashName))) maybeHashFun
+lookupHash' :: String -> Hash
+lookupHash' hashName =
+  let maybeHash = lookupHash hashName
+  in fromMaybe (throw (TahinExceptionString ("Unknown hash: " ++ hashName)))
+       maybeHash
 
 -- | This function implements the main program logic. May throw
 -- TahinExceptions, they will be handled in the caller.
-runTahin :: TahinOptions -> IO ()
-runTahin opts = do
-  -- Implement --version.
-  when (optsVersion opts) $ do
-    printVersion
-    throw TahinExceptionNone
+runTahin :: ReaderT TahinEnv IO ()
+runTahin = do
+  opts <- tahinEnvOptions <$> ask
+  let len      = optsLength opts
+      hashName = map Data.Char.toUpper (optsHash opts)
+      hash     = lookupHash' hashName
 
-  let hashName = map Data.Char.toUpper (optsHash opts)
-      len = optsLength opts
+  -- Force evaluation in order to trigger hash-not-found exception now
+  -- in case the specified hash could not be found:
+  _ <- liftIO $ evaluate hash
 
-  hashFun <- lookupHash' hashName
+  infoMessage $ "Using hash function " ++ hashName
+  infoMessage $ "Length is at most " ++ show len
 
-  infoMessage opts $ "Using hash function " ++ hashName
-  infoMessage opts $ "Length is at most " ++ show len
-
-  passwdMaster1    <- readPassword' defaultPromptMaster1 errMsgRetrieveMasterPasswd
-  passwdMaster2    <- readPassword' defaultPromptMaster2 errMsgRetrieveMasterPasswd
-  passwdMaster     <- verifyPasswords passwdMaster1 passwdMaster2
+  passwdMaster     <- retrieveMasterPassword
   passwdIdentifier <- readPassword' defaultPromptIdentifier errMsgRetrieveIdentifier
 
-  let tahinPasswd  = tahin hashFun len passwdMaster passwdIdentifier
-  putStrLn tahinPasswd
+  let tahinPasswd  = tahin (hashFunction hash) len passwdMaster passwdIdentifier
+  liftIO $ TIO.putStrLn tahinPasswd
 
   where errMsgRetrieveMasterPasswd = "Failed to retrieve master password"
         errMsgRetrieveIdentifier   = "Failed to retrieve password identifier"
+
         verifyPasswords pw1 pw2 =
           if pw1 == pw2
              then return pw1
              else throw (TahinExceptionString "Password mismatch")
 
+        retrieveMasterPassword = do
+          twice <- optsTwice . tahinEnvOptions <$> ask
+          if twice
+             then retrieveMasterPasswordTwice
+             else retrieveMasterPasswordOnce
+
+        retrieveMasterPasswordOnce =
+          readPassword' defaultPromptMaster1 errMsgRetrieveMasterPasswd
+
+        retrieveMasterPasswordTwice = do
+          master1 <- readPassword' defaultPromptMaster1 errMsgRetrieveMasterPasswd
+          master2 <- readPassword' defaultPromptMaster2 errMsgRetrieveMasterPasswd
+          verifyPasswords master1 master2
+
 -- | Type holding the information about parsed arguments.
 data TahinOptions = TahinOptions
-  { optsVersion :: Bool
-  , optsVerbose :: Bool
-  , optsHash    :: String
-  , optsLength  :: Int }
+  { optsVersion    :: Bool
+  , optsListHashes :: Bool
+  , optsVerbose    :: Bool
+  , optsHash       :: String
+  , optsLength     :: Int
+  , optsTwice      :: Bool
+  }
 
-infoMessage :: TahinOptions -> String -> IO ()
-infoMessage opts msg =
+-- | Print an informational if verbose is activated.
+infoMessage :: String -> ReaderT TahinEnv IO ()
+infoMessage msg = do
+  opts <- tahinEnvOptions <$> ask
   when (optsVerbose opts) $
-    putStrLn $ "[ " ++ msg ++ " ]"
+    liftIO $ putStrLn ("[ " ++ msg ++ " ]")
 
 -- | The argument parser.
 tahinOptions :: Parser TahinOptions
@@ -168,10 +246,14 @@ tahinOptions = TahinOptions
          (long "version"
           <> help "Display version information")
      <*> switch
+         (long "list-hashes"
+          <> help "List supported hashes")
+     <*> switch
          (long "verbose"
           <> help "Enable verbose mode")
      <*> strOption
          (long "hash"
+          <> short 'h'
           <> value defaultHash
           <> metavar "HASH"
           <> help "Specify which hash to use")
@@ -181,6 +263,10 @@ tahinOptions = TahinOptions
           <> short 'l'
           <> metavar "LENGTH"
           <> help "Specify maximum length of the password to generate")
+     <*> switch
+         (long "twice"
+          <> short 't'
+          <> help "Ask twice for the master password (e.g. for setting new passwords)")
 
 -- | Main entry point.
 main :: IO ()
