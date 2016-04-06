@@ -28,7 +28,7 @@ import qualified Data.Text.IO             as TIO
 import           Data.Text (Text)
 import           Data.Typeable
 import           Paths_Tahin
-import           Tahin
+import           Crypto.Tahin
 
 -- | The type of a hash function; a hash function maps a ByteString to
 -- a ByteString.

@@ -3,11 +3,11 @@
 
 {-# LANGUAGE OverloadedStrings          #-}
 
-module Tahin ( TahinPassword
-             , TahinMasterPassword
-             , TahinIdentifier
-             , TahinTransformer
-             , tahin ) where
+module Crypto.Tahin ( TahinPassword
+                    , TahinMasterPassword
+                    , TahinIdentifier
+                    , TahinTransformer
+                    , tahin ) where
 
 import qualified Data.ByteString.Base64   as B64
 import qualified Data.ByteString.Char8    as BS8
