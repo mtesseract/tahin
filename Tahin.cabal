@@ -8,7 +8,7 @@ license-file:        LICENSE
 author:              Moritz Schulte
 maintainer:          mtesseract@silverratio.net
 copyright:           Moritz Schulte
-category:            value
+category:            Password
 build-type:          Simple
 cabal-version:       >=1.10
 
@@ -26,14 +26,14 @@ executable tahin
                      , mtl >= 2.2.1
                      , optparse-applicative >= 0.11.0.2
                      , text >= 1.2.2.0
-  other-modules:       Tahin
+  other-modules:       Crypto.Tahin
                      , Paths_Tahin
 
 Library
   hs-source-dirs:      src
   ghc-options:         -Wall
   default-language:    Haskell2010
-  Exposed-modules:     Tahin
+  Exposed-modules:     Crypto.Tahin
   build-depends:       base >= 4.7 && < 5
                      , base64-bytestring >= 1.0.0.1
                      , bytestring >= 0.10.6.0
