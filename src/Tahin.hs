@@ -3,34 +3,16 @@
 
 {-# LANGUAGE OverloadedStrings          #-}
 
-module Tahin ( TahinException(..)
-             , TahinPassword
+module Tahin ( TahinPassword
              , TahinIdentifier
              , TahinTransformer
              , tahin ) where
 
 import qualified Data.ByteString.Base64   as B64
 import qualified Data.ByteString.Char8    as BS8
-import           Control.Exception
-import           Data.Typeable
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import           Data.Text (Text)
-
------------------------------
--- Define Tahin exceptions --
------------------------------
-
--- | Exception type used in Tahin.
-data TahinException =
-  TahinExceptionNone            -- ^ Exception value representing no
-                                -- exception
-  | TahinExceptionString String -- ^ Exception value holding an error
-                                -- message
-  deriving (Show, Typeable)
-
--- | A 'NokeeException' is an 'Exception'.
-instance Exception TahinException
 
 -- | A 'TahinPassword' is a type synonym for 'Text'; it is used for
 -- passwords in the Tahin algorithm (this includes the master password

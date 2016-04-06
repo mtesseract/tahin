@@ -12,11 +12,6 @@ import           Options.Applicative
 import           Control.Exception
 import           Control.Monad.Identity (runIdentity)
 import           Control.Monad.Reader
-import           Data.Maybe
-import           Paths_Tahin
-import           Data.Version
-import           Data.Char
-import           Tahin
 import qualified Data.ByteString          as BS
 import qualified Crypto.Hash.SHA1         as SHA1
 import qualified Crypto.Hash.SHA224       as SHA224
@@ -25,9 +20,15 @@ import qualified Crypto.Hash.SHA384       as SHA384
 import qualified Crypto.Hash.SHA512       as SHA512
 import qualified Crypto.Hash.Tiger        as Tiger
 import qualified Crypto.Hash.Whirlpool    as Whirlpool
+import           Data.Maybe
+import           Data.Version
+import           Data.Char
 import qualified Data.Text                as T
 import qualified Data.Text.IO             as TIO
 import           Data.Text (Text)
+import           Data.Typeable
+import           Paths_Tahin
+import           Tahin
 
 -- | The type of a hash function; a hash function maps a ByteString to
 -- a ByteString.
@@ -60,6 +61,19 @@ programDescription :: String
 programDescription = "Tahin generates a password by concatenating a 'master password' \
                      \with an 'identifier', transforming this string with a hash \
                      \function and finally base64-encode the resulting binary string."
+
+-- Define Tahin exceptions
+
+-- | Exception type used in Tahin.
+data TahinException =
+  TahinExceptionNone            -- ^ Exception value representing no
+                                -- exception
+  | TahinExceptionString String -- ^ Exception value holding an error
+                                -- message
+  deriving (Show, Typeable)
+
+-- | A 'NokeeException' is an 'Exception'.
+instance Exception TahinException
 
 -- | Supported hashes.
 hashes :: [Hash]
