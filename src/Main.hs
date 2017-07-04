@@ -1,18 +1,13 @@
 -- Tahin
 -- Copyright (C) 2015, 2016 Moritz Schulte <mtesseract@silverratio.net>
 
-{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
-import qualified System.Console.Haskeline as HL
-import qualified Data.Map                 as M
-import           System.Exit
-import           Options.Applicative
 import           Control.Exception
-import           Control.Monad.Identity (runIdentity)
+import           Control.Monad.Identity   (runIdentity)
 import           Control.Monad.Reader
-import qualified Data.ByteString          as BS
 import qualified Crypto.Hash.SHA1         as SHA1
 import qualified Crypto.Hash.SHA224       as SHA224
 import qualified Crypto.Hash.SHA256       as SHA256
@@ -20,15 +15,21 @@ import qualified Crypto.Hash.SHA384       as SHA384
 import qualified Crypto.Hash.SHA512       as SHA512
 import qualified Crypto.Hash.Tiger        as Tiger
 import qualified Crypto.Hash.Whirlpool    as Whirlpool
-import           Data.Maybe
-import           Data.Version
+import           Crypto.Tahin
+import qualified Data.ByteString          as BS
 import           Data.Char
+import qualified Data.Map                 as M
+import           Data.Maybe
+import           Data.Monoid              ((<>))
+import           Data.Text                (Text)
 import qualified Data.Text                as T
 import qualified Data.Text.IO             as TIO
-import           Data.Text (Text)
 import           Data.Typeable
-import           Paths_Tahin
-import           Crypto.Tahin
+import           Data.Version
+import           Options.Applicative
+import           Paths_tahin
+import qualified System.Console.Haskeline as HL
+import           System.Exit
 
 -- | The type of a hash function; a hash function maps a ByteString to
 -- a ByteString.
@@ -155,7 +156,7 @@ commandDispatcher = do
         commandSpec =
           [ (optsVersion    . tahinEnvOptions <$> ask, printVersion)
           , (optsListHashes . tahinEnvOptions <$> ask, listHashes) ]
-        
+
 
 -- | This function is just a wrapper around the function 'runTahin', adding
 -- exception handling. It gets called after arguments have been

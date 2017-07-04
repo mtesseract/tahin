@@ -1,5 +1,5 @@
-name:                Tahin
-version:             0.1.2
+name:                tahin
+version:             0.1.2.0
 synopsis:            Tahin Password Generator
 description:         Please see README.md
 homepage:            http://github.com/mtesseract/Tahin#readme
@@ -27,7 +27,7 @@ executable tahin
                      , optparse-applicative >= 0.11.0.2
                      , text >= 1.2.2.0
   other-modules:       Crypto.Tahin
-                     , Paths_Tahin
+                     , Paths_tahin
 
 Library
   hs-source-dirs:      src
